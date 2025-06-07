@@ -1,0 +1,98 @@
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters, ConversationHandler
+import os
+from dotenv import load_dotenv
+import logging
+import nest_asyncio
+nest_asyncio.apply()
+
+# Настройка логгирования
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
+
+# Стадии диалога
+NAME, GUESTS, DATE, TIME, CONFIRM = range(5)
+
+# Загрузка .env
+load_dotenv()
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+
+# /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Добро пожаловать в nobleTable! Мы всегда рады видеть вас в нашем уютном ресторане! ☕\nКак я могу к вам обращаться?"
+    )
+    return NAME
+
+# Получаем имя
+async def name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["name"] = update.message.text
+    reply_keyboard = [["1", "2", "3+"]]
+    await update.message.reply_text(
+        f"Очень приятно, {context.user_data['name']}! Сколько гостей будет?",
+        reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True),
+    )
+    return GUESTS
+
+# Получаем количество гостей
+async def guests(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["guests"] = update.message.text
+    await update.message.reply_text("На какую дату бронируем столик? (в формате 10.06)")
+    return DATE
+
+# Получаем дату
+async def date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["date"] = update.message.text
+    await update.message.reply_text("На какое время бронируем? (например 19:00)")
+    return TIME
+
+# Получаем время
+async def time(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["time"] = update.message.text
+    text = (
+        f"{context.user_data['name']}, подтвердите, пожалуйста: \n"
+        f"{context.user_data['guests']} гостя(ей), {context.user_data['date']} в {context.user_data['time']}"
+    )
+    reply_keyboard = [["Да", "Нет"]]
+    await update.message.reply_text(
+        text,
+        reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True),
+    )
+    return CONFIRM
+
+# Подтверждение
+async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text.lower() == "да":
+        await update.message.reply_text("Бронь принята! 🍽️", reply_markup=ReplyKeyboardRemove())
+    else:
+        await update.message.reply_text("Бронь отменена.", reply_markup=ReplyKeyboardRemove())
+    return ConversationHandler.END
+
+# Отмена
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Операция отменена.", reply_markup=ReplyKeyboardRemove())
+    return ConversationHandler.END
+
+# Функция запуска
+async def main():
+    application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, name)],
+            GUESTS: [MessageHandler(filters.TEXT & ~filters.COMMAND, guests)],
+            DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, date)],
+            TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, time)],
+            CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
+    application.add_handler(conv_handler)
+    logger.info("Бот запущен")
+    await application.run_polling()
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
